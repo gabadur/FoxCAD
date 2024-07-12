@@ -8,7 +8,7 @@ using Autodesk.AutoCAD.Colors;
 using System;
 using System.Linq;
 using System.Collections.Generic;
-namespace Parcels
+namespace PluginCommands
 {
     public class PluginCommands
     {
