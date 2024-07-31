@@ -102,14 +102,15 @@ namespace PluginCommands
             {
                 BlockTableRecord currentSpace = transaction.GetObject(document.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
 
-                // Get the points for sorting
-                List<(ObjectId Id, Point3d Point)> objectPoints = new List<(ObjectId, Point3d)>();
+                // Get the base points and dimensions for sorting
+                List<(ObjectId Id, Point3d Point, double Width, double Height)> objectPoints = new List<(ObjectId, Point3d, double, double)>();
 
                 foreach (ObjectId objectId in objectIds)
                 {
                     Entity entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
-                    Point3d point = entity.GeometricExtents.MinPoint;
-                    objectPoints.Add((objectId, point));
+                    Point3d basePoint = GetBasePoint(entity);
+                    var (width, height) = GetBlockReferenceDimensions(entity, transaction);
+                    objectPoints.Add((objectId, basePoint, width, height));
                 }
 
                 // Sort the objects based on the specified direction
@@ -121,20 +122,20 @@ namespace PluginCommands
                 // Perform alignment and spacing
                 double currentOffset = 0;
 
-                foreach ((ObjectId objectId, Point3d startPoint) in objectPoints)
+                foreach ((ObjectId objectId, Point3d basePoint, double width, double height) in objectPoints)
                 {
                     Entity entity = transaction.GetObject(objectId, OpenMode.ForWrite) as Entity;
-                    double offsetValue = isHorizontal ? referencePoint.Y - startPoint.Y : referencePoint.X - startPoint.X;
+                    double offsetValue = isHorizontal ? referencePoint.Y - basePoint.Y : referencePoint.X - basePoint.X;
 
                     // Apply translation to align the object
                     Matrix3d translation = isHorizontal
-                        ? Matrix3d.Displacement(new Vector3d(currentOffset - startPoint.X + referencePoint.X, offsetValue, 0))
-                        : Matrix3d.Displacement(new Vector3d(offsetValue, currentOffset - startPoint.Y + referencePoint.Y, 0));
+                        ? Matrix3d.Displacement(new Vector3d(currentOffset - basePoint.X + referencePoint.X, offsetValue, 0))
+                        : Matrix3d.Displacement(new Vector3d(offsetValue, currentOffset - basePoint.Y + referencePoint.Y, 0));
 
                     entity.TransformBy(translation);
 
                     // Update current offset for next object
-                    currentOffset += offsetDistance + (isHorizontal ? entity.GeometricExtents.MaxPoint.X - entity.GeometricExtents.MinPoint.X : entity.GeometricExtents.MaxPoint.Y - entity.GeometricExtents.MinPoint.Y);
+                    currentOffset += offsetDistance + (isHorizontal ? height : width);
                 }
 
                 // Commit the transaction
@@ -144,41 +145,99 @@ namespace PluginCommands
             editor.WriteMessage($"\nObjects aligned {alignmentDirection.ToLower()}ly with specified offset.");
         }
 
-        // Helper method to get the bottom-most point of all selected objects
-        private Point3d GetBottomMostPoint(Transaction transaction, ObjectId[] objectIds)
+        // Helper method to get the base point of an entity
+        private Point3d GetBasePoint(Entity entity)
         {
-            Point3d bottomMostPoint = new Point3d(double.MaxValue, double.MaxValue, 0.0); // Initialize with a large value
-
-            foreach (ObjectId objectId in objectIds)
+            if (entity is BlockReference blockRef)
             {
-                Entity entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
-                Point3d bottomLeft = entity.GeometricExtents.MinPoint;
-                if (bottomLeft.Y < bottomMostPoint.Y)
+                return blockRef.Position;
+            }
+            else if (entity is Circle circle)
+            {
+                return circle.Center;
+            }
+            else if (entity is Arc arc)
+            {
+                return arc.Center;
+            }
+            else if (entity is Polyline polyline)
+            {
+                return polyline.StartPoint;
+            }
+            else if (entity is Line line)
+            {
+                return line.StartPoint;
+            }
+            // Add more cases as needed for other entity types
+            else
+            {
+                // Default to using the minimum point if no specific base point is found
+                return entity.GeometricExtents.MinPoint;
+            }
+        }
+
+        // Helper method to get the dimensions of a block reference based on its vertical and horizontal lines
+        private (double Width, double Height) GetBlockReferenceDimensions(Entity entity, Transaction transaction)
+        {
+            double width = 0;
+            double height = 0;
+
+            if (entity is BlockReference blockRef)
+            {
+                BlockTableRecord blockDef = transaction.GetObject(blockRef.BlockTableRecord, OpenMode.ForRead) as BlockTableRecord;
+                if (blockDef != null)
                 {
-                    bottomMostPoint = bottomLeft;
+                    foreach (ObjectId entId in blockDef)
+                    {
+                        Entity ent = transaction.GetObject(entId, OpenMode.ForRead) as Entity;
+                        if (ent is Line line)
+                        {
+                            // Transform the line to the block reference's coordinate system
+                            Line transformedLine = (Line)line.Clone();
+                            transformedLine.TransformBy(blockRef.BlockTransform);
+
+                            // Calculate width and height from the line endpoints
+                            if (Math.Abs(transformedLine.StartPoint.X - transformedLine.EndPoint.X) < Tolerance.Global.EqualPoint)
+                            {
+                                // Vertical line
+                                height = Math.Max(height, Math.Abs(transformedLine.StartPoint.Y - transformedLine.EndPoint.Y));
+                            }
+                            if (Math.Abs(transformedLine.StartPoint.Y - transformedLine.EndPoint.Y) < Tolerance.Global.EqualPoint)
+                            {
+                                // Horizontal line
+                                width = Math.Max(width, Math.Abs(transformedLine.StartPoint.X - transformedLine.EndPoint.X));
+                            }
+                        }
+                        else if (ent is Polyline polyline)
+                        {
+                            for (int i = 0; i < polyline.NumberOfVertices - 1; i++)
+                            {
+                                Point3d pt1 = polyline.GetPoint3dAt(i);
+                                Point3d pt2 = polyline.GetPoint3dAt(i + 1);
+
+                                // Calculate width and height from the polyline vertices
+                                if (Math.Abs(pt1.X - pt2.X) < Tolerance.Global.EqualPoint)
+                                {
+                                    // Vertical segment
+                                    height = Math.Max(height, Math.Abs(pt1.Y - pt2.Y));
+                                }
+                                if (Math.Abs(pt1.Y - pt2.Y) < Tolerance.Global.EqualPoint)
+                                {
+                                    // Horizontal segment
+                                    width = Math.Max(width, Math.Abs(pt1.X - pt2.X));
+                                }
+                            }
+                        }
+                        // Add more cases for other line-based entities if needed
+                    }
                 }
             }
 
-            return bottomMostPoint;
+            return (width, height);
         }
 
-        // Helper method to get the left-most point of all selected objects
-        private Point3d GetLeftMostPoint(Transaction transaction, ObjectId[] objectIds)
-        {
-            Point3d leftMostPoint = new Point3d(double.MaxValue, double.MaxValue, 0.0); // Initialize with a large value
 
-            foreach (ObjectId objectId in objectIds)
-            {
-                Entity entity = transaction.GetObject(objectId, OpenMode.ForRead) as Entity;
-                Point3d topLeft = entity.GeometricExtents.MinPoint;
-                if (topLeft.X < leftMostPoint.X)
-                {
-                    leftMostPoint = topLeft;
-                }
-            }
 
-            return leftMostPoint;
-        }
 
 
 
@@ -489,6 +548,238 @@ namespace PluginCommands
 
 
 
+
+
+
+
+
+
+        [CommandMethod("ConnectPoints")]
+        public void ConnectPoints()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            Database db = doc.Database;
+
+            try
+            {
+                // Prompt user for the start point
+                PromptPointResult ppr1 = ed.GetPoint("Select the start point: ");
+                if (ppr1.Status != PromptStatus.OK) return;
+                Point3d startPoint = ppr1.Value;
+
+                // Prompt user for the end point
+                PromptPointResult ppr2 = ed.GetPoint("Select the end point: ");
+                if (ppr2.Status != PromptStatus.OK) return;
+                Point3d endPoint = ppr2.Value;
+
+                // Get bounding boxes of all objects in the drawing
+                List<Extents3d> obstacles = new List<Extents3d>();
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    BlockTableRecord btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+
+                    foreach (ObjectId objId in btr)
+                    {
+                        Entity entity = (Entity)tr.GetObject(objId, OpenMode.ForRead);
+                        if (entity.GeometricExtents != null)
+                        {
+                            obstacles.Add(entity.GeometricExtents);
+                        }
+                    }
+                    tr.Commit();
+                }
+
+                // Implement pathfinding algorithm
+                List<Point3d> path = FindPath(startPoint, endPoint, obstacles);
+
+                if (path == null)
+                {
+                    ed.WriteMessage("No path found.");
+                    return;
+                }
+
+                // Draw the path
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                    BlockTableRecord btr = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    Polyline polyline = new Polyline();
+                    for (int i = 0; i < path.Count; i++)
+                    {
+                        polyline.AddVertexAt(i, new Point2d(path[i].X, path[i].Y), 0, 0, 0);
+                    }
+
+                    btr.AppendEntity(polyline);
+                    tr.AddNewlyCreatedDBObject(polyline, true);
+                    tr.Commit();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("Error: " + ex.Message);
+            }
+        }
+
+        private List<Point3d> FindPath(Point3d start, Point3d end, List<Extents3d> obstacles)
+        {
+            // Implement your pathfinding algorithm here
+            List<Point3d> path = new List<Point3d>();
+
+            // Using a simple A* algorithm with constraints
+            PriorityQueue<Node> openSet = new PriorityQueue<Node>();
+            Dictionary<Point3d, Node> allNodes = new Dictionary<Point3d, Node>();
+
+            Node startNode = new Node(start, null, 0, GetHeuristic(start, end));
+            openSet.Enqueue(startNode);
+            allNodes[start] = startNode;
+
+            while (openSet.Count > 0)
+            {
+                Node current = openSet.Dequeue();
+
+                if (current.Point.IsEqualTo(end))
+                {
+                    Node temp = current;
+                    while (temp != null)
+                    {
+                        path.Add(temp.Point);
+                        temp = temp.Parent;
+                    }
+                    path.Reverse();
+                    return path;
+                }
+
+                foreach (var neighbor in GetNeighbors(current.Point, obstacles))
+                {
+                    double tentativeGScore = current.GScore + GetDistance(current.Point, neighbor);
+                    if (!allNodes.ContainsKey(neighbor) || tentativeGScore < allNodes[neighbor].GScore)
+                    {
+                        Node neighborNode = new Node(neighbor, current, tentativeGScore, GetHeuristic(neighbor, end));
+                        openSet.Enqueue(neighborNode);
+                        allNodes[neighbor] = neighborNode;
+                    }
+                }
+            }
+
+            // If we get here, no path was found
+            return null;
+        }
+
+        private List<Point3d> GetNeighbors(Point3d point, List<Extents3d> obstacles)
+        {
+            List<Point3d> neighbors = new List<Point3d>
+            {
+                new Point3d(point.X + 1, point.Y, 0),
+                new Point3d(point.X - 1, point.Y, 0),
+                new Point3d(point.X, point.Y + 1, 0),
+                new Point3d(point.X, point.Y - 1, 0)
+            };
+
+            // Remove neighbors that are within an obstacle
+            neighbors.RemoveAll(n => IsPointInObstacle(n, obstacles));
+
+            return neighbors;
+        }
+
+        private bool IsPointInObstacle(Point3d point, List<Extents3d> obstacles)
+        {
+            foreach (var obstacle in obstacles)
+            {
+                if (point.X >= obstacle.MinPoint.X && point.X <= obstacle.MaxPoint.X &&
+                    point.Y >= obstacle.MinPoint.Y && point.Y <= obstacle.MaxPoint.Y)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private double GetDistance(Point3d a, Point3d b)
+        {
+            return Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y); // Manhattan distance for grid-based pathfinding
+        }
+
+        private double GetHeuristic(Point3d a, Point3d b)
+        {
+            return GetDistance(a, b); // Same as distance for now
+        }
+
+        private class Node : IComparable<Node>
+        {
+            public Point3d Point { get; }
+            public Node Parent { get; }
+            public double GScore { get; }
+            public double FScore { get; }
+
+            public Node(Point3d point, Node parent, double gScore, double fScore)
+            {
+                Point = point;
+                Parent = parent;
+                GScore = gScore;
+                FScore = fScore;
+            }
+
+            public int CompareTo(Node other)
+            {
+                return FScore.CompareTo(other.FScore);
+            }
+        }
+
+        private class PriorityQueue<T> where T : IComparable<T>
+        {
+            private List<T> data;
+
+            public PriorityQueue()
+            {
+                this.data = new List<T>();
+            }
+
+            public void Enqueue(T item)
+            {
+                data.Add(item);
+                int ci = data.Count - 1; // child index; start at end
+                while (ci > 0)
+                {
+                    int pi = (ci - 1) / 2; // parent index
+                    if (data[ci].CompareTo(data[pi]) >= 0) break; // child item is larger than (or equal) parent so we're done
+                    T tmp = data[ci]; data[ci] = data[pi]; data[pi] = tmp;
+                    ci = pi;
+                }
+            }
+
+            public T Dequeue()
+            {
+                // Assumes pq is not empty
+                int li = data.Count - 1; // last index (before removal)
+                T frontItem = data[0];   // fetch the front
+                data[0] = data[li];
+                data.RemoveAt(li);
+
+                --li; // last index (after removal)
+                int pi = 0; // parent index. start at front of pq
+                while (true)
+                {
+                    int ci = pi * 2 + 1; // left child index of parent
+                    if (ci > li) break;  // no children so done
+                    int rc = ci + 1;     // right child
+                    if (rc <= li && data[rc].CompareTo(data[ci]) < 0) // if there is a right child (rc <= li) and it is smaller
+                        ci = rc; // use the right child instead
+
+                    if (data[pi].CompareTo(data[ci]) <= 0) break; // parent is smaller than (or equal to) smallest child so done
+                    T tmp = data[pi]; data[pi] = data[ci]; data[ci] = tmp; // swap parent and child
+                    pi = ci;
+                }
+                return frontItem;
+            }
+
+            public int Count
+            {
+                get { return data.Count; }
+            }
+        }
 
 
 
