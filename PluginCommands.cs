@@ -785,6 +785,662 @@ namespace PluginCommands
 
 
 
+        /*[CommandMethod("RemoveIECTextAndAdjacentText")]
+        public void RemoveIECTextAndAdjacentText()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                // Prompt for selecting a block reference
+                PromptEntityOptions blockOptions = new PromptEntityOptions("\nSelect a block reference: ");
+                blockOptions.SetRejectMessage("\nOnly block references are allowed.");
+                blockOptions.AddAllowedClass(typeof(BlockReference), true);
+                PromptEntityResult blockResult = ed.GetEntity(blockOptions);
+
+                if (blockResult.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand canceled.");
+                    return;
+                }
+
+                // Get the block reference and its attributes
+                BlockReference blockRef = (BlockReference)tr.GetObject(blockResult.ObjectId, OpenMode.ForWrite);
+
+                // Explode the block reference to access its entities
+                DBObjectCollection explodedObjects = new DBObjectCollection();
+                blockRef.Explode(explodedObjects);
+
+                // Add exploded objects to the model space
+                BlockTableRecord currentSpace = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is Entity entity)
+                    {
+                        currentSpace.AppendEntity(entity);
+                        tr.AddNewlyCreatedDBObject(entity, true);
+                    }
+                }
+
+                // Find the "IEC" text and the closest horizontal line
+                DBText iecText = null;
+                Line closestLine = null;
+                double minDistance = double.MaxValue;
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is DBText text)
+                    {
+                        if (text.TextString == "IEC")
+                        {
+                            iecText = text;
+                            // Find the closest horizontal line to this text
+                            foreach (DBObject innerObj in explodedObjects)
+                            {
+                                if (innerObj is Line line && IsHorizontal(line))
+                                {
+                                    double distance = DistanceToLine(text.Position, line);
+                                    if (distance < minDistance)
+                                    {
+                                        minDistance = distance;
+                                        closestLine = line;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Remove the IEC text and the closest horizontal line if found
+                if (iecText != null)
+                {
+                    iecText.UpgradeOpen(); // Ensure the text can be erased
+                    iecText.Erase();
+                }
+
+                if (closestLine != null)
+                {
+                    closestLine.UpgradeOpen(); // Ensure the line can be erased
+                    closestLine.Erase();
+                }
+
+                // Find and remove the single closest text to the right or left of the removed line
+                DBText closestText = null;
+                double minSideDistance = double.MaxValue;
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is DBText text && text != iecText) // Skip the already removed "IEC" text
+                    {
+                        double distance = DistanceToSideOfLine(text.Position, closestLine);
+                        if (distance < minSideDistance)
+                        {
+                            minSideDistance = distance;
+                            closestText = text;
+                        }
+                    }
+                }
+
+                // Remove the closest text found if it exists
+                if (closestText != null)
+                {
+                    if (closestText.IsWriteEnabled)
+                    {
+                        closestText.Erase();
+                    }
+                    else
+                    {
+                        closestText.UpgradeOpen();
+                        closestText.Erase();
+                    }
+                }
+
+                tr.Commit();
+            }
+        }
+
+        private bool IsHorizontal(Line line)
+        {
+            return line.StartPoint.Y == line.EndPoint.Y;
+        }
+
+        private double DistanceToLine(Point3d point, Line line)
+        {
+            // Calculate distance from point to the line segment
+            double dx = line.EndPoint.X - line.StartPoint.X;
+            double dy = line.EndPoint.Y - line.StartPoint.Y;
+            double lengthSquared = dx * dx + dy * dy;
+            if (lengthSquared == 0) return point.DistanceTo(line.StartPoint);
+
+            double t = ((point.X - line.StartPoint.X) * dx + (point.Y - line.StartPoint.Y) * dy) / lengthSquared;
+            t = Math.Max(0, Math.Min(1, t));
+            Point3d projection = new Point3d(line.StartPoint.X + t * dx, line.StartPoint.Y + t * dy, 0);
+            return point.DistanceTo(projection);
+        }
+
+        private double DistanceToSideOfLine(Point3d textPosition, Line line)
+        {
+            // Calculate the distance from the text to the side of the line
+            if (IsHorizontal(line))
+            {
+                return Math.Abs(textPosition.Y - line.StartPoint.Y);
+            }
+            else
+            {
+                return Math.Abs(textPosition.X - line.StartPoint.X);
+            }
+        }*/
+
+
+
+
+
+
+        /*[CommandMethod("RemoveIECTextAndRecreateBlock")]
+        public void RemoveIECTextAndRecreateBlock()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                // Prompt for selecting a block reference
+                PromptEntityOptions blockOptions = new PromptEntityOptions("\nSelect a block reference: ");
+                blockOptions.SetRejectMessage("\nOnly block references are allowed.");
+                blockOptions.AddAllowedClass(typeof(BlockReference), true);
+                PromptEntityResult blockResult = ed.GetEntity(blockOptions);
+
+                if (blockResult.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand canceled.");
+                    return;
+                }
+
+                // Get the block reference and its attributes
+                BlockReference blockRef = (BlockReference)tr.GetObject(blockResult.ObjectId, OpenMode.ForWrite);
+
+                // Print attributes of the block reference
+                BlockTableRecord blockDef = (BlockTableRecord)tr.GetObject(blockRef.BlockTableRecord, OpenMode.ForRead);
+                foreach (ObjectId attrId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(attrId, OpenMode.ForRead);
+                    if (obj is AttributeDefinition attrDef)
+                    {
+                        ed.WriteMessage($"\nAttribute Definition: Tag = {attrDef.Tag}, Default Value = {attrDef.TextString}");
+                    }
+                    else if (obj is AttributeReference attrRef)
+                    {
+                        ed.WriteMessage($"\nAttribute Reference: Tag = {attrRef.Tag}, Value = {attrRef.TextString}");
+                    }
+                    else if (obj is Entity entity)
+                    {
+                        ed.WriteMessage($"\n  Entity in Block Definition: Type = {entity.GetType().Name}");
+                    }
+                }
+                // Explode the block reference to access its entities
+                DBObjectCollection explodedObjects = new DBObjectCollection();
+                blockRef.Explode(explodedObjects);
+
+                // Add exploded objects to the model space and print their information
+                BlockTableRecord currentSpace = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is Entity entity)
+                    {
+                        currentSpace.AppendEntity(entity);
+                        tr.AddNewlyCreatedDBObject(entity, true);
+
+                        // Print information about each exploded entity
+                        if (entity is DBText text)
+                        {
+                            ed.WriteMessage($"\nExploded Entity - DBText: Tag = {text.TextString}, Position = {text.Position}");
+                        }
+                        else if (entity is Line line)
+                        {
+                            ed.WriteMessage($"\nExploded Entity - Line: Start = {line.StartPoint}, End = {line.EndPoint}");
+                        }
+                        else if (entity is Circle circle)
+                        {
+                            ed.WriteMessage($"\nExploded Entity - Circle: Center = {circle.Center}, Radius = {circle.Radius}");
+                        }
+                        // Add more else if blocks here to handle other types of entities if necessary
+                        else
+                        {
+                            ed.WriteMessage($"\nExploded Entity - Other: {entity.GetType().Name}");
+                        }
+                    }
+                }
+                // Find the "IEC" text and the closest horizontal line
+                DBText iecText = null;
+                Line closestLine = null;
+                double minDistance = double.MaxValue;
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is DBText text)
+                    {
+                        if (text.TextString == "IEC")
+                        {
+                            iecText = text;
+                            // Find the closest horizontal line to this text
+                            foreach (DBObject innerObj in explodedObjects)
+                            {
+                                if (innerObj is Line line && IsHorizontal(line))
+                                {
+                                    double distance = DistanceToLine(text.Position, line);
+                                    if (distance < minDistance)
+                                    {
+                                        minDistance = distance;
+                                        closestLine = line;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Remove the IEC text and the closest horizontal line if found
+                if (iecText != null)
+                {
+                    iecText.UpgradeOpen(); // Ensure the text can be erased
+                    iecText.Erase();
+                }
+
+                if (closestLine != null)
+                {
+                    closestLine.UpgradeOpen(); // Ensure the line can be erased
+                    closestLine.Erase();
+                }
+
+                // Find and remove the single closest text to the right or left of the removed line
+                DBText closestText = null;
+                double minSideDistance = double.MaxValue;
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is DBText text && text != iecText) // Skip the already removed "IEC" text
+                    {
+                        double distance = DistanceToSideOfLine(text.Position, closestLine);
+                        if (distance < minSideDistance)
+                        {
+                            minSideDistance = distance;
+                            closestText = text;
+                        }
+                    }
+                }
+
+                // Remove the closest text found if it exists
+                if (closestText != null)
+                {
+                    if (closestText.IsWriteEnabled)
+                    {
+                        closestText.Erase();
+                    }
+                    else
+                    {
+                        closestText.UpgradeOpen();
+                        closestText.Erase();
+                    }
+                }
+
+                // Move the remaining entities to avoid overlap
+                Vector3d moveVector = new Vector3d(10, 0, 0); // Adjust the vector as needed
+
+                BlockTableRecord currentSpace2 = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is Entity entity)
+                    {
+                        // Apply the translation to avoid overlap
+                        entity.TransformBy(Matrix3d.Displacement(moveVector));
+
+                        currentSpace2.AppendEntity(entity);
+                        tr.AddNewlyCreatedDBObject(entity, true);
+                    }
+                }
+
+                // Create a new block definition with the remaining entities
+                string newBlockName = "UpdatedBlock_" + blockRef.GetHashCode(); // Unique block name
+                BlockTable blockTable = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForWrite);
+                BlockTableRecord newBlockRecord = new BlockTableRecord();
+                newBlockRecord.Name = newBlockName;
+                blockTable.Add(newBlockRecord);
+                tr.AddNewlyCreatedDBObject(newBlockRecord, true);
+
+                // Add entities to the new block record
+                foreach (DBObject obj in explodedObjects)
+                {
+                    if (obj is Entity entity)
+                    {
+                        // Clone and add to the new block record
+                        Entity clonedEntity = (Entity)entity.Clone();
+                        newBlockRecord.AppendEntity(clonedEntity);
+                        tr.AddNewlyCreatedDBObject(clonedEntity, true);
+                    }
+                }
+
+                // Create a new block reference for the updated block
+                BlockReference newBlockRef = new BlockReference(Point3d.Origin, newBlockRecord.ObjectId);
+                currentSpace.AppendEntity(newBlockRef);
+                tr.AddNewlyCreatedDBObject(newBlockRef, true);
+
+                // Remove the original block reference
+                blockRef.UpgradeOpen(); // Ensure the block reference can be erased
+                blockRef.Erase();
+
+                tr.Commit();
+            }
+        }
+
+        private bool IsHorizontal(Line line)
+        {
+            return line.StartPoint.Y == line.EndPoint.Y;
+        }
+
+        private double DistanceToLine(Point3d point, Line line)
+        {
+            // Calculate distance from point to the line segment
+            double dx = line.EndPoint.X - line.StartPoint.X;
+            double dy = line.EndPoint.Y - line.StartPoint.Y;
+            double lengthSquared = dx * dx + dy * dy;
+            if (lengthSquared == 0) return point.DistanceTo(line.StartPoint);
+
+            double t = ((point.X - line.StartPoint.X) * dx + (point.Y - line.StartPoint.Y) * dy) / lengthSquared;
+            t = Math.Max(0, Math.Min(1, t));
+            Point3d projection = new Point3d(line.StartPoint.X + t * dx, line.StartPoint.Y + t * dy, 0);
+            return point.DistanceTo(projection);
+        }
+
+        private double DistanceToSideOfLine(Point3d textPosition, Line line)
+        {
+            // Calculate the distance from the text to the side of the line
+            if (IsHorizontal(line))
+            {
+                return Math.Abs(textPosition.Y - line.StartPoint.Y);
+            }
+            else
+            {
+                return Math.Abs(textPosition.X - line.StartPoint.X);
+            }
+        }*/
+
+
+        /*[CommandMethod("RemoveIECTextFromBlock")]
+        public void RemoveIECTextFromBlock()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                // Prompt for selecting a block reference
+                PromptEntityOptions blockOptions = new PromptEntityOptions("\nSelect a block reference: ");
+                blockOptions.SetRejectMessage("\nOnly block references are allowed.");
+                blockOptions.AddAllowedClass(typeof(BlockReference), true);
+                PromptEntityResult blockResult = ed.GetEntity(blockOptions);
+
+                if (blockResult.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand canceled.");
+                    return;
+                }
+
+                // Get the block reference
+                BlockReference blockRef = (BlockReference)tr.GetObject(blockResult.ObjectId, OpenMode.ForRead);
+
+                // Access the block definition
+                BlockTableRecord blockDef = (BlockTableRecord)tr.GetObject(blockRef.BlockTableRecord, OpenMode.ForWrite);
+
+                // Find the text object with the text "IEC"
+                ObjectId textIdToRemove = ObjectId.Null;
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is DBText text && text.TextString == "IEC")
+                    {
+                        textIdToRemove = objId;
+                        break;
+                    }
+                }
+
+                // Remove the text object if found
+                if (!textIdToRemove.IsNull)
+                {
+                    DBObject textToRemove = tr.GetObject(textIdToRemove, OpenMode.ForWrite);
+                    textToRemove.Erase();
+                    ed.WriteMessage("\nText 'IEC' removed from block.");
+                }
+                else
+                {
+                    ed.WriteMessage("\nText 'IEC' not found in block.");
+                }
+
+                // Commit the transaction
+                tr.Commit();
+            }
+
+            // Regenerate the drawing to reflect the changes
+            Application.DocumentManager.MdiActiveDocument.SendStringToExecute("REGEN\n", true, false, false);
+            //Application.DocumentManager.MdiActiveDocument.SendStringToExecute("\n", true, false, false);
+
+        }*/
+
+
+
+        [CommandMethod("RemoveIECTextAndRelatedObjects")]
+        public void RemoveIECTextAndRelatedObjects()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                // Prompt for selecting a block reference
+                PromptEntityOptions blockOptions = new PromptEntityOptions("\nSelect a block reference: ");
+                blockOptions.SetRejectMessage("\nOnly block references are allowed.");
+                blockOptions.AddAllowedClass(typeof(BlockReference), true);
+                PromptEntityResult blockResult = ed.GetEntity(blockOptions);
+
+                if (blockResult.Status != PromptStatus.OK)
+                {
+                    ed.WriteMessage("\nCommand canceled.");
+                    return;
+                }
+
+                // Get the block reference and its block definition
+                BlockReference blockRef = (BlockReference)tr.GetObject(blockResult.ObjectId, OpenMode.ForRead);
+                BlockTableRecord blockDef = (BlockTableRecord)tr.GetObject(blockRef.BlockTableRecord, OpenMode.ForWrite);
+
+                // Initialize variables
+                DBText iecText = null;
+                Line closestLine = null;
+                double minDistance = double.MaxValue;
+                double removedLineY = double.NaN;
+
+                // Find the "IEC" text and the closest horizontal line
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is DBText text && text.TextString == "IEC")
+                    {
+                        iecText = text;
+                        // Find the closest horizontal line to this text
+                        foreach (ObjectId innerObjId in blockDef)
+                        {
+                            DBObject innerObj = tr.GetObject(innerObjId, OpenMode.ForWrite);
+                            if (innerObj is Line line && IsHorizontal(line))
+                            {
+                                double distance = DistanceToLine(text.Position, line);
+                                if (distance < minDistance)
+                                {
+                                    minDistance = distance;
+                                    closestLine = line;
+                                }
+                            }
+                        }
+                        break; // We only need to find one "IEC" text
+                    }
+                }
+
+                // Remove the IEC text
+                if (iecText != null)
+                {
+                    iecText.Erase();
+                    ed.WriteMessage("\nText 'IEC' removed from block.");
+                }
+                else
+                {
+                    ed.WriteMessage("\nText 'IEC' not found in block.");
+                }
+
+                // Remove the closest horizontal line if found and record its Y coordinate
+                if (closestLine != null)
+                {
+                    removedLineY = closestLine.StartPoint.Y;
+                    closestLine.Erase();
+                    ed.WriteMessage("\nClosest horizontal line removed from block.");
+                }
+
+                // Find and remove the single closest text to the left or right of the removed line
+                DBText closestText = null;
+                double minSideDistance = double.MaxValue;
+
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is DBText text && text != iecText)
+                    {
+                        double distance = DistanceToSideOfLine(text.Position, closestLine);
+                        if (distance < minSideDistance)
+                        {
+                            minSideDistance = distance;
+                            closestText = text;
+                        }
+                    }
+                }
+
+                // Remove the closest text if found
+                if (closestText != null)
+                {
+                    closestText.Erase();
+                    ed.WriteMessage("\nClosest text to the right or left of the removed line removed.");
+                }
+
+                // Find the bottommost horizontal line
+                Line bottommostLine = null;
+                double minY = double.MaxValue;
+
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is Line line && IsHorizontal(line))
+                    {
+                        if (line.StartPoint.Y < minY)
+                        {
+                            minY = line.StartPoint.Y;
+                            bottommostLine = line;
+                        }
+                    }
+                }
+
+                // Calculate the distance difference
+                double distanceDifference = removedLineY - minY;
+
+                // Move all objects below the removed line up by the distance difference
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is Entity entity)
+                    {
+                        if (entity.Bounds != null && entity.Bounds.Value.MinPoint.Y < removedLineY)
+                        {
+                            entity.TransformBy(Matrix3d.Displacement(new Vector3d(0, distanceDifference, 0)));
+                        }
+                    }
+                }
+
+                // Move all text boxes below the removed line up by the distance difference
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is DBText text && text.Position.Y < removedLineY)
+                    {
+                        text.Position = new Point3d(text.Position.X, text.Position.Y + distanceDifference, text.Position.Z);
+                    }
+                }
+
+                // Cut off the top end of the moved vertical lines by the distance difference
+                foreach (ObjectId objId in blockDef)
+                {
+                    DBObject obj = tr.GetObject(objId, OpenMode.ForWrite);
+                    if (obj is Line line && IsVertical(line))
+                    {
+                        if (line.StartPoint.Y < removedLineY && line.EndPoint.Y > removedLineY)
+                        {
+                            line.EndPoint = new Point3d(line.EndPoint.X, line.EndPoint.Y - distanceDifference, line.EndPoint.Z);
+                        }
+                        else if (line.EndPoint.Y < removedLineY && line.StartPoint.Y > removedLineY)
+                        {
+                            line.StartPoint = new Point3d(line.StartPoint.X, line.StartPoint.Y - distanceDifference, line.StartPoint.Z);
+                        }
+                    }
+                }
+
+                // Commit the transaction
+                tr.Commit();
+            }
+
+            // Regenerate the drawing to reflect the changes
+            Application.DocumentManager.MdiActiveDocument.SendStringToExecute("REGEN\n", true, false, false);
+        }
+
+        private bool IsHorizontal(Line line)
+        {
+            return line.StartPoint.Y == line.EndPoint.Y;
+        }
+
+        private bool IsVertical(Line line)
+        {
+            return line.StartPoint.X == line.EndPoint.X;
+        }
+
+        private double DistanceToLine(Point3d point, Line line)
+        {
+            // Calculate distance from point to the line segment
+            double dx = line.EndPoint.X - line.StartPoint.X;
+            double dy = line.EndPoint.Y - line.StartPoint.Y;
+            double lengthSquared = dx * dx + dy * dy;
+            if (lengthSquared == 0) return point.DistanceTo(line.StartPoint);
+
+            double t = ((point.X - line.StartPoint.X) * dx + (point.Y - line.StartPoint.Y) * dy) / lengthSquared;
+            t = Math.Max(0, Math.Min(1, t));
+            Point3d projection = new Point3d(line.StartPoint.X + t * dx, line.StartPoint.Y + t * dy, 0);
+            return point.DistanceTo(projection);
+        }
+
+        private double DistanceToSideOfLine(Point3d textPosition, Line line)
+        {
+            // Calculate the distance from the text to the side of the line
+            if (IsHorizontal(line))
+            {
+                return Math.Abs(textPosition.Y - line.StartPoint.Y);
+            }
+            else
+            {
+                return Math.Abs(textPosition.X - line.StartPoint.X);
+            }
+        }
+
+
+
+
+
 
 
 
