@@ -26,6 +26,9 @@
 				<Command
 					Local="PS_FanOutLines"
 					Global="PS_FanOutLines"/>
+				<Command
+					Local="DrawSignalArrow"
+					Global="DrawSignalArrow"/>
 			</Commands>
 		</ComponentEntry>
 		<ComponentEntry
