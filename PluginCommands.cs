@@ -1859,7 +1859,7 @@ namespace PluginCommands
 
 
 
-        [CommandMethod("DrawSignalArrow")]
+        [CommandMethod("DrawSignalArrow", CommandFlags.UsePickSet)]
         public void DrawSignalArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
@@ -2485,7 +2485,7 @@ namespace PluginCommands
 
         //correct code for single line
 
-        [CommandMethod("CreateArrow")]
+        [CommandMethod("CreateArrow", CommandFlags.UsePickSet)]
         public void CreateArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;

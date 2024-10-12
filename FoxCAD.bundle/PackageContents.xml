@@ -29,6 +29,18 @@
 				<Command
 					Local="DrawSignalArrow"
 					Global="DrawSignalArrow"/>
+				<Command
+					Local="CreateArrow"
+					Global="CreateArrow"/>
+				<Command
+					Local="CreateArrowsForMultiplePolylines"
+					Global="CreateArrowsForMultiplePolylines"/>
+				<Command
+					Local="BackwardsArrow"
+					Global="BackwardsArrow"/>
+				<Command
+					Local="SwitchArrowDirectionForPolylines"
+					Global="SwitchArrowDirectionForPolylines"/>
 			</Commands>
 		</ComponentEntry>
 		<ComponentEntry
