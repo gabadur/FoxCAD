@@ -62,20 +62,51 @@ namespace PluginCommands
         }
 
 
-        [CommandMethod("PS_AlignObjects")]
+        [CommandMethod("PS_AlignObjects", CommandFlags.UsePickSet)]
         public void AlignObjects()
         {
             var document = Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
             var editor = document.Editor;
+            SelectionSet selectedEntities;
+            PromptSelectionResult selResult = editor.SelectImplied();
 
-            // Prompt user to select objects
-            PromptSelectionResult selectionResult = editor.GetSelection();
-            if (selectionResult.Status != PromptStatus.OK)
-                return;
+            if (selResult.Status == PromptStatus.OK)
+            {
+                // If there is a previous selection, we use that
+                selectedEntities = selResult.Value;
+                editor.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+            }
+
+            else
+            {
+                // Clear the PickFirst selection set
+                ObjectId[] idarrayEmpty = new ObjectId[0];
+                editor.SetImpliedSelection(idarrayEmpty);
+                editor.WriteMessage("No Previous Objects Selected");
+                selResult = editor.GetSelection();
+                // Prompt user to select multiple polylines
+                PromptSelectionOptions selOptions = new PromptSelectionOptions();
+                selOptions.MessageForAdding = "\nSelect polylines: ";
+
+                if (selResult.Status == PromptStatus.OK)
+                {
+                    selectedEntities = selResult.Value;
+
+                    editor.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+
+                }
+                else
+                {
+                    Application.ShowAlertDialog("Number of objects selected: 0");
+
+                    return;
+                }
+            }
+
 
             // Get the selected objects
-            SelectionSet selectionSet = selectionResult.Value;
-            ObjectId[] objectIds = selectionSet.GetObjectIds();
+
+            ObjectId[] objectIds = selectedEntities.GetObjectIds();
 
             // Prompt user to select alignment type (horizontal or vertical)
             PromptKeywordOptions alignmentPromptOptions = new PromptKeywordOptions("\nSelect alignment direction [Horizontal/Vertical]:");
@@ -1452,7 +1483,7 @@ namespace PluginCommands
 
 
 
-        [CommandMethod("DrawSignalArrow")]
+        [CommandMethod("DrawSignalArrow", CommandFlags.UsePickSet)]
         public void DrawSignalArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
@@ -1962,7 +1993,7 @@ namespace PluginCommands
 
 
 
-        /*[CommandMethod("CreateArrow")]
+        /* [CommandMethod("CreateArrow")]
         public void CreateArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
@@ -2027,7 +2058,7 @@ namespace PluginCommands
                 }
                 double paramNextPoint = paramAtSelectedPoint + stepDistance;
 
-                /*if (paramNextPoint > polyline.Length)
+                if (paramNextPoint > polyline.Length)
                 {
                     // If the step goes past the end of the polyline, we loop around (for closed polylines)
                     paramNextPoint = paramNextPoint - polyline.Length;
@@ -2074,108 +2105,208 @@ namespace PluginCommands
         }
 
             ed.WriteMessage($"\nArrow created and polyline joined successfully." );
-        }
+        } */
 
-    correct code for single line
+        //correct code for single line
 
-    */
-
-
-        [CommandMethod("CreateArrows")]
-        public void CreateArrows()
+        [CommandMethod("CreateArrow", CommandFlags.UsePickSet)]
+        public void CreateArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
 
-            // Prompt user to select multiple polylines
-            PromptSelectionOptions selectionOptions = new PromptSelectionOptions
-            {
-                MessageForAdding = "\nSelect multiple polylines: ",
-                AllowDuplicates = false
-            };
+            // Prompt user to select a polyline
+            PromptEntityOptions peo = new PromptEntityOptions("\nSelect a polyline: ");
+            peo.SetRejectMessage("\nEntity must be a polyline.");
+            peo.AddAllowedClass(typeof(Polyline), true);
 
-            PromptSelectionResult selectionResult = ed.GetSelection(selectionOptions);
-            if (selectionResult.Status != PromptStatus.OK)
-            {
-                return; // Exit if no selection was made
-            }
+            PromptEntityResult per = ed.GetEntity(peo);
+            if (per.Status != PromptStatus.OK)
+                return;
 
-            // Start a transaction to manipulate the polylines
+            ObjectId polylineId = per.ObjectId;
+
+            // Prompt user to select an endpoint of the polyline
+            PromptPointOptions ppo = new PromptPointOptions("\nSelect an endpoint of the polyline: ");
+            PromptPointResult ppr = ed.GetPoint(ppo);
+            if (ppr.Status != PromptStatus.OK)
+                return;
+
+            Point3d selectedPoint = ppr.Value;
+
+            // Start a transaction to manipulate the polyline
             using (Transaction tr = doc.TransactionManager.StartTransaction())
             {
-                // Iterate through each selected polyline
-                foreach (ObjectId objId in selectionResult.Value.GetObjectIds())
+                Polyline polyline = tr.GetObject(polylineId, OpenMode.ForRead) as Polyline;
+
+                if (polyline == null)
                 {
-                    // Open the polyline
-                    Polyline polyline = tr.GetObject(objId, OpenMode.ForRead) as Polyline;
+                    ed.WriteMessage("\nSelected entity is not a polyline.");
+                    return;
+                }
+
+                // Find the index of the selected point on the polyline
+                int vertexIndex = -1;
+                for (int i = 0; i < polyline.NumberOfVertices; i++)
+                {
+                    Point3d vertex = polyline.GetPoint3dAt(i);
+                    if (vertex.IsEqualTo(selectedPoint))
+                    {
+                        vertexIndex = i;
+                        break;
+                    }
+                }
+
+                if (vertexIndex == -1)
+                {
+                    ed.WriteMessage("\nSelected point is not a vertex of the polyline.");
+                    return;
+                }
+
+                // Use a small step to move along the polyline and calculate the direction vector
+                double stepDistance = -1; // Small step to calculate direction
+
+                // Get the point at the next step along the polyline from the selected point
+                double paramAtSelectedPoint = polyline.GetParameterAtPoint(selectedPoint); // Parameter at selected point
+                if (paramAtSelectedPoint == 0)
+                {
+                    stepDistance = 1;
+                }
+                double paramNextPoint = paramAtSelectedPoint + stepDistance;
+
+                if (paramNextPoint > polyline.Length)
+                {
+                    // If the step goes past the end of the polyline, we loop around (for closed polylines)
+                    paramNextPoint = paramNextPoint - polyline.Length;
+                }
+
+                // Get the next point at the small step distance along the polyline
+                Point3d nextPoint = polyline.GetPointAtParameter(paramNextPoint);
+
+                // Compute the direction vector
+                Vector3d direction = nextPoint - selectedPoint;
+                direction = direction.GetNormal();  // Normalize the direction vector
+
+                // Define the arrow length and width
+                double arrowLength = 1.0;  // You can adjust this
+                double arrowWidth = 1.0;   // This controls the width of the arrowhead
+
+                // Create the arrow polyline (this will be part of the original polyline)
+                Polyline arrow = new Polyline();
+                arrow.AddVertexAt(0, new Point2d(selectedPoint.X, selectedPoint.Y), 0, 0, arrowWidth); // Start point
+                arrow.AddVertexAt(1, new Point2d(selectedPoint.X + direction.X * arrowLength, selectedPoint.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
+
+                // Add the arrow polyline to the current space but don't append it independently
+                BlockTableRecord btr = tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
+
+                // Instead of appending the arrow as a separate entity, join it directly to the polyline
+                polyline.UpgradeOpen();
+                try
+                {
+                    // Now, add the arrow to the polyline directly
+                    polyline.JoinEntity(arrow);
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception ex)
+                {
+                    ed.WriteMessage($"\nERROR: Can only connect arrow to endpoints of line. Endpoint was not selected. Arrow was not joined with line.");
+                    return;
+                }
+
+                // Commit the transaction
+                tr.Commit();
+            }
+
+            ed.WriteMessage($"\nArrow created and polyline joined successfully.");
+        }
+
+
+        [CommandMethod("CreateArrowsForMultiplePolylines", CommandFlags.UsePickSet)]
+        public void CreateArrowsForMultiplePolylines()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            SelectionSet selectedEntities;
+
+            // Check if there is a previously selected set of entities
+            PromptSelectionResult selResult = ed.SelectImplied();
+
+            if (selResult.Status == PromptStatus.OK)
+            {
+                // If there is a previous selection, we use that
+                selectedEntities = selResult.Value;
+                ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+            }
+
+            else
+            {
+                // Clear the PickFirst selection set
+                ObjectId[] idarrayEmpty = new ObjectId[0];
+                ed.SetImpliedSelection(idarrayEmpty);
+                ed.WriteMessage("No Previous Objects Selected");
+                selResult = ed.GetSelection();
+                // Prompt user to select multiple polylines
+                PromptSelectionOptions selOptions = new PromptSelectionOptions();
+                selOptions.MessageForAdding = "\nSelect polylines: ";
+
+                if (selResult.Status == PromptStatus.OK)
+                {
+                    selectedEntities = selResult.Value;
+
+                    ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+
+                }
+                else
+                {
+                    Application.ShowAlertDialog("Number of objects selected: 0");
+                    
+                    return;
+                }
+            }
+            
+
+            using (Transaction tr = doc.TransactionManager.StartTransaction())
+            {
+                BlockTableRecord btr = tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
+
+                foreach (SelectedObject selectedObj in selectedEntities)
+                {
+                    // Check if the entity is a polyline
+                    Polyline polyline = tr.GetObject(selectedObj.ObjectId, OpenMode.ForRead) as Polyline;
                     if (polyline == null)
                     {
-                        continue; // Skip if not a polyline
-                    }
-
-                    // Prompt user to select an endpoint of the current polyline
-                    PromptPointOptions ppo = new PromptPointOptions("\nSelect an endpoint of the polyline: ");
-                    PromptPointResult ppr = ed.GetPoint(ppo);
-                    if (ppr.Status != PromptStatus.OK)
+                        ed.WriteMessage("\nSelected entity is not a polyline.");
                         continue;
-
-                    Point3d selectedPoint = ppr.Value;
-
-                    // Ensure the selected point is a valid endpoint (vertex)
-                    int vertexIndex = -1;
-                    for (int i = 0; i < polyline.NumberOfVertices; i++)
-                    {
-                        Point3d vertex = polyline.GetPoint3dAt(i);
-                        if (vertex.IsEqualTo(selectedPoint))
-                        {
-                            vertexIndex = i;
-                            break;
-                        }
                     }
 
-                    if (vertexIndex == -1)
-                    {
-                        ed.WriteMessage("\nSelected point is not a vertex of the polyline.");
-                        continue; // Skip if the point is not a vertex
-                    }
+                    // Find the last vertex of the polyline
+                    Point3d lastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 1);
+                    Point3d seclastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 2);
 
-                    // Use a small step to move along the polyline and calculate the direction vector
-                    double stepDistance = 1.0; // Small step to calculate direction
-
-                    // Get the parameter of the selected point
-                    double paramAtSelectedPoint = polyline.GetParameterAtPoint(selectedPoint);
-                    double paramNextPoint = paramAtSelectedPoint + stepDistance;
-
-                    // Get the next point at the small step distance along the polyline
-                    Point3d nextPoint = polyline.GetPointAtParameter(paramNextPoint);
 
                     // Compute the direction vector
-                    Vector3d direction = nextPoint - selectedPoint;
+                    Vector3d direction = seclastVertex - lastVertex;
                     direction = direction.GetNormal();  // Normalize the direction vector
 
                     // Define the arrow length and width
-                    double arrowLength = 1.0;  // Adjust this as needed
-                    double arrowWidth = 1.0;   // Adjust this as needed
+                    double arrowLength = 1.0;  // You can adjust this
+                    double arrowWidth = 1.0;   // This controls the width of the arrowhead
 
-                    // Create the arrow polyline
+                    // Create the arrow polyline (this will be part of the original polyline)
                     Polyline arrow = new Polyline();
-                    arrow.AddVertexAt(0, new Point2d(selectedPoint.X, selectedPoint.Y), 0, 0, arrowWidth); // Start point
-                    arrow.AddVertexAt(1, new Point2d(selectedPoint.X + direction.X * arrowLength, selectedPoint.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
+                    arrow.AddVertexAt(0, new Point2d(lastVertex.X, lastVertex.Y), 0, 0, arrowWidth); // Start point
+                    arrow.AddVertexAt(1, new Point2d(lastVertex.X + direction.X * arrowLength, lastVertex.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
 
-                    // Add the arrow polyline to the database
-                    BlockTableRecord btr = tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
-                    btr.AppendEntity(arrow);
-                    tr.AddNewlyCreatedDBObject(arrow, true);
-
-                    // Join the newly created arrow with the original polyline
-                    polyline.UpgradeOpen();
+                    // Add the arrow polyline to the current space but don't append it independently
                     try
                     {
-                        polyline.JoinEntity(arrow);  // Join the arrow to the polyline
+                        // Now, add the arrow to the polyline directly
+                        polyline.UpgradeOpen();
+                        polyline.JoinEntity(arrow);
                     }
                     catch (Autodesk.AutoCAD.Runtime.Exception ex)
                     {
-                        ed.WriteMessage($"\nERROR: Can only connect arrow to endpoints of line. Endpoint was not selected. Arrow was not joined with line.");
+                        ed.WriteMessage($"\nERROR: Could not join arrow with polyline. {ex.Message}");
+                        continue;
                     }
                 }
 
@@ -2183,13 +2314,248 @@ namespace PluginCommands
                 tr.Commit();
             }
 
-            ed.WriteMessage($"\nArrows created and polylines joined successfully.");
+            ed.WriteMessage($"\nArrows created for all selected polylines.");
+        }
+        [CommandMethod("BackwardsArrow", CommandFlags.UsePickSet)]
+        public void BackwardsArrow()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            SelectionSet selectedEntities;
+
+            // Check if there is a previously selected set of entities
+            PromptSelectionResult selResult = ed.SelectImplied();
+
+            if (selResult.Status == PromptStatus.OK)
+            {
+                // If there is a previous selection, we use that
+                selectedEntities = selResult.Value;
+                ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+            }
+
+            else
+            {
+                // Clear the PickFirst selection set
+                ObjectId[] idarrayEmpty = new ObjectId[0];
+                ed.SetImpliedSelection(idarrayEmpty);
+                ed.WriteMessage("No Previous Objects Selected");
+                selResult = ed.GetSelection();
+                // Prompt user to select multiple polylines
+                PromptSelectionOptions selOptions = new PromptSelectionOptions();
+                selOptions.MessageForAdding = "\nSelect polylines: ";
+
+                if (selResult.Status == PromptStatus.OK)
+                {
+                    selectedEntities = selResult.Value;
+
+                    ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+
+                }
+                else
+                {
+                    Application.ShowAlertDialog("Number of objects selected: 0");
+
+                    return;
+                }
+            }
+
+            using (Transaction tr = doc.TransactionManager.StartTransaction())
+            {
+                BlockTableRecord btr = tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
+
+                foreach (SelectedObject selectedObj in selectedEntities)
+                {
+                    // Check if the entity is a polyline
+                    Polyline polyline = tr.GetObject(selectedObj.ObjectId, OpenMode.ForRead) as Polyline;
+                    if (polyline == null)
+                    {
+                        ed.WriteMessage("\nSelected entity is not a polyline.");
+                        continue;
+                    }
+
+                    // Find the first vertex of the polyline
+                    Point3d firstvertex = polyline.GetPoint3dAt(0);
+                    Point3d secondVertex = polyline.GetPoint3dAt(1);
+
+
+                    // Compute the direction vector
+                    Vector3d direction = secondVertex - firstvertex;
+                    direction = direction.GetNormal();  // Normalize the direction vector
+
+                    // Define the arrow length and width
+                    double arrowLength = 1.0;  // You can adjust this
+                    double arrowWidth = 1.0;   // This controls the width of the arrowhead
+
+                    // Create the arrow polyline (this will be part of the original polyline)
+                    Polyline arrow = new Polyline();
+                    arrow.AddVertexAt(0, new Point2d(firstvertex.X, firstvertex.Y), 0, 0, arrowWidth); // Start point
+                    arrow.AddVertexAt(1, new Point2d(firstvertex.X + direction.X * arrowLength, firstvertex.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
+
+                    // Add the arrow polyline to the current space but don't append it independently
+                    try
+                    {
+                        // Now, add the arrow to the polyline directly
+                        polyline.UpgradeOpen();
+                        polyline.JoinEntity(arrow);
+                    }
+                    catch (Autodesk.AutoCAD.Runtime.Exception ex)
+                    {
+                        ed.WriteMessage($"\nERROR: Could not join arrow with polyline. {ex.Message}");
+                        continue;
+                    }
+                }
+
+                // Commit the transaction
+                tr.Commit();
+            }
+
+            ed.WriteMessage($"\nArrows created for all selected polylines.");
         }
 
 
 
 
 
+        [CommandMethod("SwitchArrowDirectionForPolylines", CommandFlags.UsePickSet)]
+        public void SwitchArrowDirectionForPolylines()
+        {
+            Document doc = Application.DocumentManager.MdiActiveDocument;
+            Editor ed = doc.Editor;
+            SelectionSet selectedEntities;
+
+            // Check if there is a previously selected set of entities
+            PromptSelectionResult selResult = ed.SelectImplied();
+
+            if (selResult.Status == PromptStatus.OK)
+            {
+                // If there is a previous selection, we use that
+                selectedEntities = selResult.Value;
+                ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+            }
+
+            else
+            {
+                // Clear the PickFirst selection set
+                ObjectId[] idarrayEmpty = new ObjectId[0];
+                ed.SetImpliedSelection(idarrayEmpty);
+                ed.WriteMessage("No Previous Objects Selected");
+                selResult = ed.GetSelection();
+                // Prompt user to select multiple polylines
+                PromptSelectionOptions selOptions = new PromptSelectionOptions();
+                selOptions.MessageForAdding = "\nSelect polylines: ";
+
+                if (selResult.Status == PromptStatus.OK)
+                {
+                    selectedEntities = selResult.Value;
+
+                    ed.WriteMessage("Number of objects selected: " + selectedEntities.Count.ToString());
+
+                }
+                else
+                {
+                    Application.ShowAlertDialog("Number of objects selected: 0");
+
+                    return;
+                }
+            }
+
+            using (Transaction tr = doc.TransactionManager.StartTransaction())
+            {
+                BlockTableRecord btr = tr.GetObject(doc.Database.CurrentSpaceId, OpenMode.ForWrite) as BlockTableRecord;
+                bool isBackwards = false;
+                foreach (SelectedObject selectedObj in selectedEntities)
+                {
+                    // Check if the entity is a polyline
+                    Polyline polyline = tr.GetObject(selectedObj.ObjectId, OpenMode.ForRead) as Polyline;
+                    if (polyline == null)
+                    {
+                        ed.WriteMessage("\nSelected entity is not a polyline.");
+                        continue;
+                    }
+
+                    // If polyline has less than 2 vertices, skip
+                    if (polyline.NumberOfVertices < 2)
+                    {
+                        ed.WriteMessage("\nPolyline has less than two vertices, cannot reverse direction.");
+                        continue;
+                    }
+
+                    // Upgrade the polyline to be modified
+                    polyline.UpgradeOpen();
+                    if (polyline.GetStartWidthAt(0) > 0)
+                    {
+                        polyline.RemoveVertexAt(0);
+                        isBackwards = true;
+                    }
+                    else
+                    {
+                        polyline.RemoveVertexAt(polyline.NumberOfVertices - 1);
+                    }
+
+                    polyline.ReverseCurve();
+                    Polyline arrow = new Polyline();
+                    if (isBackwards)
+                    {
+                        // Find the first vertex of the polyline
+                        Point3d firstvertex = polyline.GetPoint3dAt(0);
+                        Point3d secondVertex = polyline.GetPoint3dAt(1);
+
+
+                        // Compute the direction vector
+                        Vector3d direction = secondVertex - firstvertex;
+                        direction = direction.GetNormal();  // Normalize the direction vector
+
+                        // Define the arrow length and width
+                        double arrowLength = 1.0;  // You can adjust this
+                        double arrowWidth = 1.0;   // This controls the width of the arrowhead
+
+                        // Create the arrow polyline (this will be part of the original polyline)
+                        arrow.AddVertexAt(0, new Point2d(firstvertex.X, firstvertex.Y), 0, 0, arrowWidth); // Start point
+                        arrow.AddVertexAt(1, new Point2d(firstvertex.X + direction.X * arrowLength, firstvertex.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
+                    }
+                    else
+                    {
+                        // Find the last vertex of the polyline
+                        Point3d lastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 1);
+                        Point3d seclastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 2);
+
+
+                        // Compute the direction vector
+                        Vector3d direction = seclastVertex - lastVertex;
+                        direction = direction.GetNormal();  // Normalize the direction vector
+
+                        // Define the arrow length and width
+                        double arrowLength = 1.0;  // You can adjust this
+                        double arrowWidth = 1.0;   // This controls the width of the arrowhead
+
+                        // Create the arrow polyline (this will be part of the original polyline)
+                        
+                        arrow.AddVertexAt(0, new Point2d(lastVertex.X, lastVertex.Y), 0, 0, arrowWidth); // Start point
+                        arrow.AddVertexAt(1, new Point2d(lastVertex.X + direction.X * arrowLength, lastVertex.Y + direction.Y * arrowLength), 0, 0, arrowWidth); // End point
+
+                        // Add the arrow polyline to the current space but don't append it independently
+                    }
+
+
+                    // Add the arrow polyline to the current space but don't append it independently
+                    try
+                    {
+                        // Now, add the arrow to the polyline directly
+                        polyline.JoinEntity(arrow);
+                    }
+                    catch (Autodesk.AutoCAD.Runtime.Exception ex)
+                    {
+                        ed.WriteMessage($"\nERROR: Could not join arrow with polyline. {ex.Message}");
+                        continue;
+                    }
+                }
+
+                // Commit the transaction
+                tr.Commit();
+            }
+
+            ed.WriteMessage($"\nArrow direction switched for all selected polylines.");
+        }
 
 
 
