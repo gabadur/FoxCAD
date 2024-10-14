@@ -11,7 +11,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Diagnostics;
 namespace PluginCommands
-
+{
 public class Aligning
 {
 
@@ -359,4 +359,5 @@ public class Aligning
 
         ed.WriteMessage($"\nDevice box '{boxLabel}' created with {numInputs} inputs and {numOutputs} outputs.");
     }
+}
 }

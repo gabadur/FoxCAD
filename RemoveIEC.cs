@@ -1,4 +1,15 @@
-﻿using System;
+﻿using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.Colors;
+
+using System;
+using System.Linq;
+using System.Collections.Generic;
+using System.Net;
+using System.Diagnostics;
 namespace PluginCommands
 {
 	public class RemoveIEC

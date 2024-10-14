@@ -27,20 +27,14 @@
 					Local="PS_FanOutLines"
 					Global="PS_FanOutLines"/>
 				<Command
-					Local="DrawSignalArrow"
-					Global="DrawSignalArrow"/>
-				<Command
-					Local="CreateArrow"
-					Global="CreateArrow"/>
-				<Command
-					Local="CreateArrowsForMultiplePolylines"
-					Global="CreateArrowsForMultiplePolylines"/>
+					Local="Arrow"
+					Global="Arrow"/>
 				<Command
 					Local="BackwardsArrow"
 					Global="BackwardsArrow"/>
 				<Command
-					Local="SwitchArrowDirectionForPolylines"
-					Global="SwitchArrowDirectionForPolylines"/>
+					Local="SwitchArrow"
+					Global="SwitchArrow"/>
 			</Commands>
 		</ComponentEntry>
 		<ComponentEntry

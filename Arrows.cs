@@ -217,8 +217,8 @@ namespace PluginCommands
 
 
 
-        [CommandMethod("SwitchArrowDirection", CommandFlags.UsePickSet)]
-        public void SwitchArrowDirection()
+        [CommandMethod("SwitchArrow", CommandFlags.UsePickSet)]
+        public void SwitchArrow()
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             Editor ed = doc.Editor;
@@ -258,10 +258,12 @@ namespace PluginCommands
                     }
 
                     polyline.ReverseCurve();
+                    Polyline arrow;
                     if (isBackwards)
                     {
                         // Find the first vertex of the polyline
-                        Polyline arrow = MakeArrowHead(polyline.GetPoint3dAt(0), polyline.GetPoint3dAt(1));
+
+                        arrow = MakeArrowHead(polyline.GetPoint3dAt(0), polyline.GetPoint3dAt(1));
 
                     }
                     else
@@ -269,7 +271,7 @@ namespace PluginCommands
                         // Find the last vertex of the polyline
                         Point3d lastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 1);
                         Point3d seclastVertex = polyline.GetPoint3dAt(polyline.NumberOfVertices - 2);
-                        Polyline arrow = MakeArrowHead(lastVertex, seclastVertex);
+                        arrow = MakeArrowHead(lastVertex, seclastVertex);
 
                         // Add the arrow polyline to the current space but don't append it independently
                     }
