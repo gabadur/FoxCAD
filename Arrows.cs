@@ -109,7 +109,7 @@ namespace PluginCommands
             direction = direction.GetNormal();  // Normalize the direction vector
 
             // Define the arrow length and width
-            double arrowLength = 1.0;  // You can adjust this
+            double arrowLength = 1.2;  // You can adjust this
             double arrowWidth = 0.6;   // This controls the width of the arrowhead
 
             // Create the arrow polyline (this will be part of the original polyline)
