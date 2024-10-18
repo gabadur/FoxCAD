@@ -110,7 +110,7 @@ namespace PluginCommands
 
             // Define the arrow length and width
             double arrowLength = 1.0;  // You can adjust this
-            double arrowWidth = 1.0;   // This controls the width of the arrowhead
+            double arrowWidth = 0.6;   // This controls the width of the arrowhead
 
             // Create the arrow polyline (this will be part of the original polyline)
             arrowhead.AddVertexAt(0, new Point2d(v1.X, v1.Y), 0, 0, arrowWidth); // Start point
