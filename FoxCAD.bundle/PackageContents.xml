@@ -35,6 +35,9 @@
 				<Command
 					Local="SwitchArrow"
 					Global="SwitchArrow"/>
+				<Command
+					Local="Feather"
+					Global="Feather"/>
 			</Commands>
 		</ComponentEntry>
 		<ComponentEntry
