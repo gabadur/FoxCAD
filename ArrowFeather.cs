@@ -58,7 +58,7 @@ namespace PluginCommands
                             : new Vector3d(1, 0, 0);
 
                         // Offset the label position
-                        double offsetDistance = 0.5; // Set the desired distance from the line
+                        double offsetDistance = 1.5; // Set the desired distance from the line
                         labelPosition = labelPosition.Add(offsetDirection.GetNormal() * offsetDistance);
 
                         AttachmentPoint attachment = LineDirection(offsetDirection);
@@ -85,7 +85,7 @@ namespace PluginCommands
                             Location = labelPosition,
                             Contents = labelText,
                             Height = 1, // Adjust height as needed
-                            TextHeight = 0.1,
+                            TextHeight = 1.8,
                             Attachment = attachment
                         };
 
@@ -186,6 +186,7 @@ namespace PluginCommands
         private string GetUserInput(Editor ed, string message)
         {
             PromptStringOptions pso = new PromptStringOptions(message);
+            pso.AllowSpaces = true; // Allow spaces in input
             PromptResult pr = ed.GetString(pso);
             return pr.Status == PromptStatus.OK ? pr.StringResult : null;
         }
